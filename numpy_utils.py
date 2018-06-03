@@ -35,9 +35,11 @@ def tiled_triangle(i=0, j=0, a=0):
     corners += j * U(pi / 3)
     return corners
 
+
 if __name__ == '__main__':
+    from matplotlib import pyplot as plt
     from plotting_utils import plot_polygon
     plot_polygon(tiled_triangle(2, 3, 0))
     plot_polygon(tiled_triangle(4, 5, 0))
     plot_polygon(tiled_triangle(2, 3, 3))
-    print('zpu')
+    plt.show()

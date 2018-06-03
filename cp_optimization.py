@@ -4,9 +4,9 @@ from torch_utils import rotate_tensor
 
 
 class CPLoss(nn.Module):
-    def __init__(self, base_polys, connections=None, connection_lengths=None, circle_polys=None):
+    def __init__(self, base_polys, connections=None, connection_lengths=None, circle_polys=None,
+                 device=torch.device('cuda')):
         super(CPLoss, self).__init__()
-
         base_poly_ids = []
         base_points = []
         base_offsets = []
@@ -15,12 +15,15 @@ class CPLoss(nn.Module):
             current_id = len(base_poly_ids)
             reverse_poly_ids.append(torch.range(current_id, current_id + len(poly) - 1).long())
             base_poly_ids.extend((i,) * len(poly))
-            poly = torch.FloatTensor(poly)
+            if isinstance(poly, torch.Tensor):
+                poly = poly.float().to(device)
+            else:
+                poly = torch.FloatTensor(poly).to(device)
             com = torch.mean(poly, dim=0)
             base_points.extend(poly - com)
             base_offsets.append(com)
         self.base_points = torch.stack(base_points, dim=0)
-        self.poly_ids = torch.LongTensor(base_poly_ids)
+        self.poly_ids = torch.LongTensor(base_poly_ids).to(device)
         self.reverse_poly_ids = reverse_poly_ids
         self.base_offsets = torch.stack(base_offsets, dim=0)
 
@@ -32,14 +35,14 @@ class CPLoss(nn.Module):
             for con in connections:
                 ind1 = self.reverse_poly_ids[con[0, 0]][0] + float(con[0, 1])
                 ind2 = self.reverse_poly_ids[con[1, 0]][0] + float(con[1, 1])
-                connection_ids.append(torch.LongTensor([ind1, ind2]))
+                connection_ids.append(torch.LongTensor([ind1, ind2]).to(device))
             self.connection_ids = torch.stack(connection_ids)
-            self.connected_polys = torch.LongTensor(connections[:, :, 0])
+            self.connected_polys = torch.LongTensor(connections[:, :, 0]).to(device)
 
-            self.min_poly_dist = torch.FloatTensor([1])  # TODO
+            self.min_poly_dist = torch.FloatTensor([1]).to(device)  # TODO
 
             if connection_lengths is not None:
-                self.connection_lengths = torch.FloatTensor(connection_lengths)
+                self.connection_lengths = torch.FloatTensor(connection_lengths).to(device)
             else:
                 self.connection_lengths = self.get_connection_lengths()
 
@@ -55,12 +58,13 @@ class CPLoss(nn.Module):
                 reverse_circle_poly_grouping.append(torch.range(current_id, current_id + len(poly) - 1).long())
                 circle_poly_grouping.extend((i,) * len(poly))
                 ind = torch.stack([self.reverse_poly_ids[poly[i, 0]][0] + float(poly[i, 1]) for i in range(len(poly))])
-                circle_poly_ids.append(torch.LongTensor(ind))
+                circle_poly_ids.append(ind.long())
                 current_id += len(ind)
 
             self.circle_poly_ids = torch.cat(circle_poly_ids, dim=0)
             self.reverse_circle_poly_grouping = reverse_circle_poly_grouping
-            self.circle_poly_grouping = torch.LongTensor(circle_poly_grouping)
+            self.circle_poly_grouping = torch.LongTensor(circle_poly_grouping).to(device)
+        self.device = device
 
     def get_connection_lengths(self):
         points = self.base_points + self.base_offsets[self.poly_ids]
@@ -72,7 +76,7 @@ class CPLoss(nn.Module):
         points = rotate_tensor(points, angles[self.poly_ids])
         coms = (self.base_offsets + positions)[self.poly_ids]
         points = points + coms
-        return [points[ind].data.numpy() for ind in self.reverse_poly_ids]
+        return [points[ind].data.cpu().numpy() for ind in self.reverse_poly_ids]
 
     def initial_circle_centers(self, positions, angles):
         points = self.base_points
@@ -92,11 +96,12 @@ class CPLoss(nn.Module):
         if self.has_connections:
             connections = points[self.connection_ids]
             dists = torch.sqrt(torch.sum((connections[:, 0] - connections[:, 1]) ** 2, dim=-1))
-            connection_loss = ((dists - self.connection_lengths) ** 2).sum()
+            connection_loss = (((dists - self.connection_lengths) / self.connection_lengths) ** 2).sum()
             loss += connection_loss
 
             dists = torch.sqrt(
                 torch.sum((coms[self.connected_polys[:, 0]] - coms[self.connected_polys[:, 1]]) ** 2, dim=-1))
+
             poly_dist_loss = (torch.max(self.min_poly_dist.expand_as(dists) - dists, torch.zeros_like(dists)) ** 2).sum()
             loss += poly_dist_loss
 
@@ -106,7 +111,7 @@ class CPLoss(nn.Module):
             avg_dists = []
             for group in self.reverse_circle_poly_grouping:
                 avg_dists.append(dists[group].mean())
-            avg_dists = torch.Tensor(avg_dists)[self.circle_poly_grouping]
+            avg_dists = torch.stack(avg_dists)[self.circle_poly_grouping]
             circle_loss = (((dists - avg_dists) / avg_dists) ** 2).mean()
             loss += 50 * circle_loss
 
