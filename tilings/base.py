@@ -208,6 +208,7 @@ class FaceCollection:
         self._edges = edge_collection
         self._faces = []
         self._face_ids = {}
+        self._face_nodes = []
 
     def __len__(self):
         return len(self._faces)
@@ -227,6 +228,9 @@ class FaceCollection:
         else:
             self.add_face([other.get_face_nodes(face) for face in other.faces])
             return self
+
+    def __iter__(self):
+        return iter(self.faces)
 
     def _normalize(self, face):
         i = np.argmin(face)
@@ -250,6 +254,7 @@ class FaceCollection:
                 f'{max(face)} out of range. Only {len(self._edges)} edges in the graph'
             if face not in self._faces:
                 self._faces.append(face)
+                self._face_nodes.append(self._compute_face_nodes(face))
                 self._face_ids[face] = len(self) - 1
                 return len(self) - 1
             else:
@@ -281,21 +286,53 @@ class FaceCollection:
         else:
             assert False, f'Invalid inputs: {args}'
 
-    def get_face_nodes(self, face):
+    def _compute_face_nodes(self, face):
         def intersection(lst1, lst2):
             lst3 = [value for value in lst1 if value in lst2]
             return lst3
         node_ids = []
         for i in range(len(face)):
             node_ids.append(intersection(self.edges[face[i]], self.edges[face[(i-1) % len(face)]])[0])
-        return [self.edges.nodes[i] for i in node_ids]
+        return node_ids
+
+    def get_face_node_ids(self, face):
+        if isinstance(face, int):
+            return self._face_nodes[face]
+        else:
+            return self._face_nodes[self._face_ids[self._normalize(face)]]
+
+    def get_face_nodes(self, face):
+        return [self.edges.nodes[id] for id in self.get_face_node_ids(face)]
 
 
 class Tiling:
-    def __init__(self):
-        self._nodes = NodeCollection()  # list of objects that can be connected (e.g. trigrid_node(i, j))
-        self._edges = EdgeCollection(self._nodes)
-        self._faces = FaceCollection(self._edges)
+    def __init__(self, nodes=None, edges=None, faces=None):
+        if isinstance(nodes, NodeCollection):
+            self._nodes = nodes
+            nodes = None
+        else:
+            self._nodes = NodeCollection()
+        if nodes is not None:
+            self.add_node(nodes)
+
+        if isinstance(edges, EdgeCollection):
+            self._nodes = edges.nodes
+            self._edges = edges
+            edges = None
+        else:
+            self._edges = EdgeCollection(self._nodes)
+        if edges is not None:
+            self.add_edge(edges)
+        
+        if isinstance(faces, FaceCollection):
+            self._nodes = faces.edges.nodes
+            self._edges = faces.edges
+            self._faces = faces
+            faces = None
+        else:
+            self._faces = FaceCollection(self._edges)
+        if faces is not None:
+            self.add_face(faces)
 
     def __str__(self):
         return f'Tiling Object\n{self.nodes}\n{self.edges}\n{self.faces}'

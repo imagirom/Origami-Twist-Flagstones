@@ -7,12 +7,14 @@ import cmath
 
 
 class PlanarNode(Node):
-    def __init__(self, pos):
-        assert isinstance(pos, tuple) and len(pos) == 2
-        super(PlanarNode, self).__init__(pos)
+    def to_array(self):
+        return np.array(self.data)
+
+    def coords(self):
+        return self.data[0], self.data[1]
 
 
-class ComplexNode(Node):
+class ComplexNode(PlanarNode):
     def __init__(self, z, epsilon=1e-5):
         super(ComplexNode, self).__init__(z)
         self.epsilon = epsilon
@@ -40,12 +42,33 @@ class ComplexSquareGridNode(ComplexNode):
         super(ComplexSquareGridNode, self).__init__(z)
 
 
+class FixedFaceNode(PlanarNode):
+    def __init__(self, node, face):
+        super(FixedFaceNode, self).__init__((face, node))
+        self._face = face
+        self._node = node
+
+    @property
+    def node(self):
+        return self._node
+
+    @property
+    def face(self):
+        return self._face
+
+    def to_array(self):
+        return self.node.to_array()
+
+    def coords(self):
+        return self.node.coords()
+
+
 class PlanarNodeCollection(NodeCollection):
     def __init__(self):
         super(PlanarNodeCollection, self).__init__()
 
     def is_valid_node(self, node):
-        return isinstance(node, ComplexNode)
+        return isinstance(node, PlanarNode)
 
     def __contains__(self, item):
         return item in self._node_ids.keys()
@@ -58,18 +81,21 @@ class PlanarEdgeCollection(EdgeCollection):
 class PlanarFaceCollection(FaceCollection):
 
     def _normalize(self, face):
-        nodes = [node.to_array() for node in self.get_face_nodes(face)]
+        nodes = [self.edges.nodes[id].to_array() for id in self._compute_face_nodes(face)]
         if total_polygon_curvature(nodes) < 0:
             face = tuple(reversed(face))
         return super(PlanarFaceCollection, self)._normalize(face)
 
 
 class PlanarTiling(Tiling):
-    def __init__(self):
-        super(PlanarTiling, self).__init__()
-        self._nodes = PlanarNodeCollection()
-        self._edges = PlanarEdgeCollection(self._nodes)
-        self._faces = PlanarFaceCollection(self._edges)
+    def __init__(self, nodes=None, edges=None, faces=None):
+        if nodes is None:
+            nodes = PlanarNodeCollection()
+        if edges is None:
+            edges = PlanarEdgeCollection(nodes)
+        if faces is None:
+            faces = PlanarFaceCollection(edges)
+        super(PlanarTiling, self).__init__(nodes, edges, faces)
 
     def plot(self, ax=None):
         if ax is None:
@@ -88,4 +114,57 @@ class PlanarTiling(Tiling):
         ax.margins(0.05)
         plt.show()
 
+    def split_face_tiliing(self):
+        result = PlanarTiling()
 
+        for face in self.faces:
+            new_face = []
+            for node in self.faces.get_face_nodes(face):
+                new_face.append(FixedFaceNode(node, face))
+            result.add_face(new_face)
+
+        return result
+
+    def get_node_array(self):
+        return np.stack([node.to_array() for node in self.nodes], axis=0)
+
+    def get_numpy_polys(self):
+        node_array = self.get_node_array()
+        return [node_array[np.array(self.faces.get_face_node_ids(face))] for face in self.faces]
+
+    def get_circle_polys(self):
+        face_node_ids = [np.array(self.faces.get_face_node_ids(i)) for i in range(len(self.faces))]
+        result = []
+        for node_id in range(len(self.nodes)):
+            adjacent_face_ids = [i for i, face in enumerate(face_node_ids) if node_id in face]
+            if len(adjacent_face_ids) < 3:
+                continue
+            circle_poly = []
+            for i in adjacent_face_ids:
+                pos = np.argwhere(face_node_ids[i] - node_id == 0)[0, 0]
+                circle_poly.append([i, pos])
+            result.append(np.array(circle_poly))
+        return result
+
+    def get_flagstone_connections(self):
+        face_node_ids = [np.array(self.faces.get_face_node_ids(i)) for i in range(len(self.faces))]
+        result = []
+        for edge_id, edge in enumerate(self.edges):
+            adjacent_face_ids = [face_id for face_id, face in enumerate(self.faces) if edge_id in face]
+            if len(adjacent_face_ids) != 2:
+                continue
+            face_node_ids_0 = face_node_ids[adjacent_face_ids[0]]
+            face_node_ids_1 = face_node_ids[adjacent_face_ids[1]]
+            offset = np.argwhere(face_node_ids_0 - edge[0] == 0)[0, 0] - \
+                     np.argwhere(face_node_ids_0 - edge[1] == 0)[0, 0]
+            if offset % len(face_node_ids_0) != 1:
+                result.append([
+                    [adjacent_face_ids[0], np.argwhere(face_node_ids_0 - edge[0] == 0)[0, 0]],
+                    [adjacent_face_ids[1], np.argwhere(face_node_ids_1 - edge[1] == 0)[0, 0]]
+                ])
+            else:
+                result.append([
+                    [adjacent_face_ids[0], np.argwhere(face_node_ids_0 - edge[1] == 0)[0, 0]],
+                    [adjacent_face_ids[1], np.argwhere(face_node_ids_1 - edge[0] == 0)[0, 0]]
+                ])
+        return np.array(result)

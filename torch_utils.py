@@ -14,5 +14,6 @@ def one_hot(l, i):
     result[i] = 1
     return result
 
+
 if __name__ == '__main__':
     print(one_hot(10, 3))
