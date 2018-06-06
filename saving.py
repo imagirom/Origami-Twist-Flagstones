@@ -1,5 +1,7 @@
 import svgwrite
 import os
+import numpy as np
+
 
 def save_cp(filename, polygons, connections=None, centers=None, center_connections=None):
     lines = []
@@ -17,20 +19,19 @@ def save_cp(filename, polygons, connections=None, centers=None, center_connectio
         lines.extend(np.stack([poly, np.concatenate([poly[1:], poly[[0]]])], axis=1))
 
     path = os.path.join('saved_CPs', filename)
-    if not os.path.exists(path):
+    if not os.path.exists(os.path.dirname(path)):
         os.mkdir(os.path.dirname(path))
 
     svg_document = svgwrite.Drawing(filename=path,
-                                    size=("8000px", "6000px"))
+                                    size=("80px", "60px"))
 
     lines = np.array(lines)
-    print(np.min(np.linalg.norm(lines.flatten(), axis=-1)))
-    _, idx = np.unique(np.sort(np.sort(lines, axis=1), axis=2) // 100, axis=0, return_index=True)
-    idx = np.array(idx, dtype=np.int32)
-    print(idx.shape)
-    for line in lines[idx.flatten()]:
+    lenghts = np.linalg.norm(lines[:, 0] - lines[:, 1], axis=-1)
+    width = np.mean(lenghts)/3
+    print(f'saving {len(lines)} lines')
+    for i, line in enumerate(lines):
         line = line.astype(float)
         svg_document.add(svgwrite.shapes.Line(start=line[0], end=line[1],
-                                              stroke_width="10",
+                                              stroke_width=str(width / 20),
                                               stroke="black", ))
     svg_document.save()

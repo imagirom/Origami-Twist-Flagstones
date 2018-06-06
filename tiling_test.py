@@ -1,4 +1,10 @@
 from tilings import *
+from plotting_utils import *
+import torch
+from torch.autograd import Variable
+from torch.optim import SGD
+from cp_optimization import CPLoss
+import saving
 
 
 def max_coord(i, j):
@@ -10,15 +16,12 @@ def min_coord(i, j):
     coords = (i, j, -i-j)
     return min(abs(x) for x in coords)
 
+
 if __name__ == '__main__':
 
-    from plotting_utils import *
-    import torch
-    from torch.autograd import Variable
-    from torch.optim import SGD
-    from cp_optimization import CPLoss
-
     device = torch.device('cpu')
+    n_iters = 50000
+    filename = 'test1.svg'
 
     tiling = PlanarTiling()
     edges = []
@@ -65,14 +68,14 @@ if __name__ == '__main__':
     circle_polys = tiling.get_circle_polys()
     cp = CPLoss(polys, connections=connections, circle_polys=circle_polys, device=device)
     # init variables to be optimized
-    positions = Variable(1.3 * coms, requires_grad=True)
+    positions = Variable(1.41 * coms, requires_grad=True)
     angles = Variable(torch.FloatTensor([np.pi / 12 for i in range(n_polys)]).to(device), requires_grad=True)
     print(angles.device)
     circle_centers = Variable(cp.initial_circle_centers(positions, angles), requires_grad=True)
 
     loss_curve = []
     optim = SGD([positions, angles, circle_centers], lr=.1, momentum=.0)
-    for i in range(10 ** 6):
+    for i in range(n_iters):
         optim.zero_grad()
         loss = cp(positions, angles, circle_centers)
         loss.backward()
@@ -91,7 +94,10 @@ if __name__ == '__main__':
             break
 
     tris = cp.mapped_points(positions, angles)
-    plt.figure(figsize=(12, 12))
-    show_cp(tris, connections, centers=circle_centers.data.numpy(), center_connections=circle_polys)
+    plt.figure()
+    show_cp(tris, connections, centers=circle_centers.data.numpy(), center_connections=circle_polys, show=False)
+    plt.figure()
     plt.semilogy(loss_curve)
     plt.show()
+    saving.save_cp(filename, polygons=tris, connections=connections, centers=circle_centers.data.cpu().numpy(),
+                   center_connections=circle_polys)
